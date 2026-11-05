@@ -1,0 +1,9 @@
+{
+  "mode": "opening",
+  "title": "BE MYSELF",
+  "image": "../assets/demo-bg.png",
+  "font_size_pt": 220,
+  "morph_ms": 2000,
+  "initial_offset": 0.06,
+  "image_scale": 1.1
+}

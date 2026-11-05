@@ -1,0 +1,10 @@
+{
+  "mode": "closing",
+  "title": "THANKS",
+  "image": "../assets/demo-bg.png",
+  "font_size_pt": 295,
+  "morph_ms": 2000,
+  "image_scale": 1.1,
+  "closing_message": "愿你我更上一层楼",
+  "closing_subtitle": "感谢各位的观看和支持，您的关注是我持续更新的动力"
+}
