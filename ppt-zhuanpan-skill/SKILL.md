@@ -36,7 +36,7 @@ python scripts/zhuanpan_deck.py -o out.pptx --config deck.json
   "morph_ms": 1600,
   "direction": "ccw",
   "cover": {
-    "eyebrow": "顶部小字", "title": "生涯发展展示",
+    "eyebrow": "顶部小字", "title": "汇报主标题",
     "claim": "一句话核心主张。", "target": "目标职业：……",
     "name_line": "姓名 · 学校 · 专业班级", "teacher": "指导教师：……"
   },
