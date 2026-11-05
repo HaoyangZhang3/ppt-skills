@@ -43,6 +43,18 @@ python ppt-loukong-skill/scripts/verify_deck.py opening.pptx --mode opening
 - `ppt-loukong-skill` 的标题是透明 PNG 字孔，生成后不能在 PowerPoint 里当文字编辑；改标题/字体请改配置重跑。
 - 仓库内 `assets/demo-bg.png` 为程序生成的抽象山景演示底图（`scripts/make_demo_asset.py` 可重建），非照片、无版权风险；正式使用请替换为自己的底图。
 
+## 维护（改完即推送）
+
+修改任一技能内容后立刻同步，保持本地与远程一致：
+
+```bash
+git add -A
+git commit -m "简述本次修改"
+git push origin main
+```
+
+凭据经 `gh auth setup-git` 绑定后可直接 push。若 push 长时间无响应，先确认本机到 github.com 的网络连通（部分网络需加速），可加 `GIT_TERMINAL_PROMPT=0` 让凭据问题快速报错而不是挂起。
+
 ## 许可
 
 MIT，见 [LICENSE](LICENSE)。
