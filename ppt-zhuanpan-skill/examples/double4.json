@@ -4,6 +4,7 @@
   "morph_ms": 1200,
   "inner_ratio": 0.44,
   "ring_alpha": 55,
+  "sound": "sounds/click.wav",
   "label_prefix": "PART",
   "label_size": 28,
   "footer_left": "示例 · 内外双盘反转转盘",
@@ -49,7 +50,8 @@
       "points": [
         "照片上白字最稳：label / spoke 默认已改白",
         "深色背景图请同时把 colors 的 title / text 调亮",
-        "inner_spin 写 2 就是内盘转两倍，更像两组齿轮咬合"
+        "inner_spin 写 2 就是内盘转两倍，更像两组齿轮咬合",
+        "sound 给一段音效，每次换页过渡时自动响一下"
       ],
       "photo": "photos/demo-4.png"
     }
