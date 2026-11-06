@@ -1,21 +1,26 @@
 # -*- coding: utf-8 -*-
-"""ppt-zhuanpan-skill — 机械风大齿轮转盘 PPT 生成器（自包含）。
+"""ppt-zhuanpan-skill — 翻页旋转转盘 PPT 生成器（自包含，风格无关）。
 
-效果：左侧大齿轮只露右半边（约 1/4 版面），每翻一页逆时针转 90°，
-当前章「part + 数字」横排标签永远落在右缘 3 点钟方向，正对右侧内容区；
-标签旁有工具小图标，翻页时旧图标缩小收回轮心、新图标自轮心放大伸出；
-右上角常驻转动齿轮 GIF；暗灰机械风；全程 Morph 平滑切换。
+这个技能只做一件事：页面左侧放一个大转盘，只露右半边（约占 1/4 版面），
+每翻一页整盘旋转 360/N 度（N = 章数），当前章的横排「前缀 + 编号」标签
+永远落在右缘 3 点钟方向、正对右侧内容区；标签旁的图标在翻页时缩回轮心 /
+放大伸出接力。全程 Morph（平滑）切换按对象名补间，所以转盘是真的在转，
+不是换图。
+
+造型（中性圆盘 / 齿轮）、章数、配色、背景、图标全部由配置决定，默认中性
+无风格、白底可读。技能不附带任何图片素材。
 
 用法：
-  python zhuanpan_deck.py -o out.pptx                 # 内置演示（4 章 + 封面）
+  python zhuanpan_deck.py -o out.pptx                    # 内置演示（4 章 + 封面）
   python zhuanpan_deck.py -o out.pptx --config deck.json
 
-依赖：python-pptx >= 0.6.19（素材已随技能附带，无需 Pillow，除非要重新生成素材）。
+依赖：python-pptx >= 0.6.19
 """
 import argparse
 import json
 import math
 import os
+import sys
 
 from pptx import Presentation
 from pptx.util import Emu, Pt
@@ -26,24 +31,90 @@ from pptx.oxml import parse_xml
 from pptx.oxml.ns import qn, nsdecls
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-ASSETS = os.path.normpath(os.path.join(BASE, '..', 'assets'))
 PT = 12700
+EMU_IN = 914400
 SW, SH = 12192000, 6858000  # 16:9
 
-STEEL = RGBColor(0xC9, 0xCE, 0xD4)
-TXT_MAIN = RGBColor(0xEC, 0xEE, 0xF0)
-TXT_SUB = RGBColor(0xB6, 0xBD, 0xC4)
-TXT_DIM = RGBColor(0x8A, 0x90, 0x97)
-ACCENT = RGBColor(0x9F, 0xB4, 0xC6)
+MIN_CHAPTERS, MAX_CHAPTERS = 2, 12
+WHEELS = ('disc', 'gear9')
+DIRECTIONS = ('ccw', 'cw')
 
 MC_NS = 'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"'
 P14_NS = 'xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main"'
 P159_NS = 'xmlns:p159="http://schemas.microsoft.com/office/powerpoint/2015/09/main"'
 
+# 默认中性配色（白底可读）。config 的 colors 可逐项覆盖；写成 '' 表示该项不用
+# （例如 wheel_line: '' → 转盘不描边，spoke: '' → 不画分格线）。
+PALETTE = {
+    'wheel_fill': 'E6E9ED',   # 转盘填充
+    'wheel_fill2': '',        # 非空则与 wheel_fill 组成 45° 渐变
+    'wheel_line': 'C0C7CE',   # 转盘描边
+    'spoke': 'AEB6BE',        # 分格放射线
+    'hub_fill': 'FFFFFF',     # 中心轴孔（必须不透明，要盖住缩小的图标）
+    'hub_line': 'AEB6BE',
+    'label': '1F2429',        # 标签前缀（part）
+    'label_num': '6A727A',    # 标签编号
+    'title': '1F2429',        # 内容区大标题
+    'text': '4E565E',         # 内容区要点
+    'accent': '5A7186',       # 小标签、短横线、要点方块
+    'dim': '8C939A',          # 页脚
+}
+# gear9 造型的专属默认（金属感渐变），仍可被 colors 覆盖
+GEAR9_PALETTE = {
+    'wheel_fill': 'D8DCE1',
+    'wheel_fill2': '9BA3AB',
+    'wheel_line': '',
+    'hub_fill': 'F2F4F6',
+}
+
+DEFAULTS = {
+    'font': '微软雅黑',
+    'morph_ms': 1600,
+    'auto_advance_ms': None,
+    'direction': 'ccw',
+    'wheel': 'disc',
+    'wheel_size': 1.12,       # 转盘直径 = wheel_size × 页高
+    'wheel_cx': 0.06,         # 圆心横坐标占页宽比例（0.06 → 只露右半边）
+    'wheel_cy': 0.50,         # 圆心纵坐标占页高比例
+    'wheel_shadow': None,     # None → disc 不加、gear9 加
+    'wheel_line_pt': 1.25,
+    'spoke_pt': 1.4,          # 分格线粗细（磅）
+    'spoke_len': 0.94,        # 分格线长度占半径比例
+    'hub_ratio': 0.20,        # 轴孔半径占转盘半径比例
+    'label_prefix': 'part',   # 标签第一行文字；'' → 只显示编号
+    'label_radius': 0.70,     # 标签中心到轮心距离占半径比例
+    'label_size': 40,         # 前缀字号
+    'label_num_size': 20,     # 编号字号
+    'label_w_in': 1.5,        # 标签文本框宽（英寸）
+    'label_h_in': 1.1,        # 标签文本框高（英寸）
+    'icon_size_in': 0.85,     # 当前章图标边长（英寸）
+    'icon_hidden_in': 0.10,   # 非当前章图标缩到多小（藏在轴孔下）
+    'icon_offset': 0.40,      # 当前章图标在轮心右侧多远（占半径比例）
+    'content_left': 0.535,    # 右侧内容区起点（占页宽比例）
+    'content_width': 0.425,
+    'content_title_size': 28,
+    'content_point_size': 14,
+    'background': None,       # 背景图片路径；None = 不设背景，用 PowerPoint 默认白底
+    'footer_left': '',
+    'footer_name': '',
+    'footer_left_x': None,    # None → 自动避开转盘
+    'colors': {},
+    'cover': None,
+    'pages': [],
+}
+
+ALLOWED_TOP = set(DEFAULTS)
+ALLOWED_PAGE = {'part', 'num', 'section', 'title', 'points', 'icon'}
+ALLOWED_COVER = {'eyebrow', 'title', 'claim', 'target', 'name_line', 'teacher'}
+
+_FONT = DEFAULTS['font']       # build() 按配置覆盖，供 add_text 取用
+
 
 # ---------------------------------------------------------------- XML  helpers
+# 以下四个函数是本技能对外暴露的底层配方，签名保持稳定（外部脚本会直接 import）。
 
 def set_slide_bg_picture(slide, img_path):
+    """把图片设为整页背景（写在 p:cSld 的第一个子元素 p:bg 里）。"""
     image_part, rId = slide.part.get_or_add_image_part(img_path)
     cSld = slide._element.find(qn('p:cSld'))
     old = cSld.find(qn('p:bg'))
@@ -56,6 +127,7 @@ def set_slide_bg_picture(slide, img_path):
 
 
 def add_outer_shadow(shape, blur_pt=8.0, dist_pt=14.0, dir_deg=30.0, alpha_pct=55):
+    """给形状加外阴影。"""
     spPr = shape._element.spPr
     old = spPr.find(qn('a:effectLst'))
     if old is not None:
@@ -68,7 +140,9 @@ def add_outer_shadow(shape, blur_pt=8.0, dist_pt=14.0, dir_deg=30.0, alpha_pct=5
     spPr.append(parse_xml(xml))
 
 
-def set_gradient_fill(shape, color='767D84', ang_deg=45, alpha_start=100, alpha_end=100):
+def set_gradient_fill(shape, color='767D84', ang_deg=45, alpha_start=100, alpha_end=100,
+                      color2=None):
+    """线性渐变填充。color2 为空时两端同色（等价于带 alpha 的纯色）。"""
     spPr = shape._element.spPr
     for tag in ('a:noFill', 'a:solidFill', 'a:gradFill', 'a:blipFill', 'a:pattFill', 'a:grpFill'):
         el = spPr.find(qn(tag))
@@ -78,12 +152,14 @@ def set_gradient_fill(shape, color='767D84', ang_deg=45, alpha_start=100, alpha_
            '<a:gs pos="0"><a:srgbClr val="%s"><a:alpha val="%d"/></a:srgbClr></a:gs>'
            '<a:gs pos="100000"><a:srgbClr val="%s"><a:alpha val="%d"/></a:srgbClr></a:gs>'
            '</a:gsLst><a:lin ang="%d" scaled="1"/></a:gradFill>') % (
-        nsdecls('a'), color, int(alpha_start * 1000), color,
+        nsdecls('a'), color, int(alpha_start * 1000), color2 or color,
         int(alpha_end * 1000), int(ang_deg * 60000) % 21600000)
     spPr.find(qn('a:prstGeom')).addnext(parse_xml(xml))
 
 
 def set_morph_transition(slide, dur_ms=1600, auto_advance_ms=None):
+    """Morph（平滑）切换：mc:AlternateContent，Choice 走 p159:morph byObject，
+    Fallback 退化成普通切换（旧版 PowerPoint / WPS 不会报错，只是不平滑）。"""
     sld = slide._element
     MC_TAG = '{http://schemas.openxmlformats.org/markup-compatibility/2006}AlternateContent'
     for child in list(sld):
@@ -98,10 +174,47 @@ def set_morph_transition(slide, dur_ms=1600, auto_advance_ms=None):
     sld.append(parse_xml(xml))
 
 
+# ---------------------------------------------------------------- small utils
+
+def rgb(hexstr):
+    """'1F2429' / '#1F2429' / 'abc' → RGBColor；空值返回 None。"""
+    if hexstr is None:
+        return None
+    h = str(hexstr).strip().lstrip('#')
+    if not h:
+        return None
+    if len(h) == 3:
+        h = ''.join(c * 2 for c in h)
+    if len(h) != 6 or any(c not in '0123456789abcdefABCDEF' for c in h):
+        raise ValueError('颜色要写成 6 位十六进制（如 1F2429），收到 %r' % hexstr)
+    return RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
+def resolve_path(path, base_dir=None):
+    """配置里的相对路径以配置文件所在目录为基准。"""
+    if not path:
+        return None
+    p = str(path)
+    if base_dir and not os.path.isabs(p):
+        p = os.path.join(base_dir, p)
+    return os.path.normpath(p)
+
+
+def label_number(page, k):
+    """标签第二行的编号：优先 page.num，其次从 part 末尾取，最后退回序号。"""
+    if page.get('num'):
+        return str(page['num'])
+    text = str(page.get('part') or '').strip()
+    if not text:
+        return '%02d' % (k + 1)
+    toks = text.split()
+    return toks[-1] if len(toks) > 1 else text
+
+
 # ---------------------------------------------------------------- shape helpers
 
-def add_text(shapes, x, y, w, h, text, size, color=TXT_MAIN, bold=False,
-             align=PP_ALIGN.LEFT, name=None, spacing=None):
+def add_text(shapes, x, y, w, h, text, size, color=None, bold=False,
+             align=PP_ALIGN.LEFT, name=None, spacing=None, font=None):
     box = shapes.add_textbox(Emu(int(x)), Emu(int(y)), Emu(int(w)), Emu(int(h)))
     if name:
         box.name = name
@@ -114,160 +227,276 @@ def add_text(shapes, x, y, w, h, text, size, color=TXT_MAIN, bold=False,
     run.text = text
     run.font.size = Pt(size)
     run.font.bold = bold
-    run.font.color.rgb = color
-    run.font.name = '微软雅黑'
+    run.font.color.rgb = color if color is not None else rgb(PALETTE['title'])
+    run.font.name = font or _FONT
     if spacing is not None:
         run.font._rPr.set('spc', str(int(spacing * 100)))
     return box
 
 
-def add_bar(shapes, x, y, w, h, rgb, name=None):
+def add_bar(shapes, x, y, w, h, color, name=None):
     bar = shapes.add_shape(MSO_SHAPE.RECTANGLE, Emu(int(x)), Emu(int(y)),
                            Emu(int(w)), Emu(int(h)))
     if name:
         bar.name = name
     bar.fill.solid()
-    bar.fill.fore_color.rgb = rgb
+    bar.fill.fore_color.rgb = color
     bar.line.fill.background()
     bar.shadow.inherit = False
     return bar
 
 
-def add_gif_pair(shapes, big_cx, big_cy, big_w, scale=0.62):
-    big = shapes.add_picture(os.path.join(ASSETS, 'gear_big.gif'),
-                             Emu(int(big_cx - big_w / 2)), Emu(int(big_cy - big_w / 2)),
-                             Emu(int(big_w)), Emu(int(big_w)))
-    big.name = 'gear-anim-big'
-    small_w = big_w * scale
-    small = shapes.add_picture(os.path.join(ASSETS, 'gear_small.gif'),
-                               Emu(int(big_cx + big_w * 0.68 - small_w / 2)),
-                               Emu(int(big_cy + big_w * 0.66 - small_w / 2)),
-                               Emu(int(small_w)), Emu(int(small_w)))
-    small.name = 'gear-anim-small'
-
-
-def add_footer(shapes, idx, total, footer_left, footer_name, left_x=None):
+def add_footer(shapes, idx, total, footer_left, footer_name, left_x=None, pal=None):
+    pal = pal or PALETTE
     y = SH * 0.945
     if left_x is None:
-        left_x = SW * 0.035
-    add_text(shapes, left_x, y, SW * 0.60, SH * 0.04, footer_left, 9, color=TXT_DIM)
-    add_text(shapes, SW * 0.62, y, SW * 0.345, SH * 0.04,
-             '%s · %02d / %02d' % (footer_name, idx, total), 9, color=TXT_DIM,
+        left_x = int(SW * 0.035)
+    dim = rgb(pal['dim'])
+    if footer_left:
+        add_text(shapes, left_x, y, SW * 0.60, SH * 0.04, footer_left, 9, color=dim)
+    right = '%02d / %02d' % (idx, total)
+    if footer_name:
+        right = '%s · %s' % (footer_name, right)
+    add_text(shapes, SW * 0.62, y, SW * 0.345, SH * 0.04, right, 9, color=dim,
              align=PP_ALIGN.RIGHT)
 
 
 # ---------------------------------------------------------------- wheel
 
-def add_gear_roulette(shapes, cx, cy, r, offset, labels, current, icons):
-    """大齿轮转盘。offset 为整盘旋转角（度，顺时针为正；每页 -90 即逆时针）。
-    所有形状跨页同名，保证 Morph 按对象匹配。"""
-    gear = shapes.add_shape(MSO_SHAPE.GEAR_9, Emu(int(cx - r)), Emu(int(cy - r)),
+def add_wheel(shapes, cx, cy, r, offset, step, nums, current, icons, cfg, pal):
+    """转盘本体。
+
+    cx/cy/r     轮心与半径（EMU）
+    offset      本页整盘旋转角（度，PowerPoint 顺时针为正）
+    step        相邻扇区夹角（度，带符号：ccw 为负、cw 为正）
+    nums        每章标签编号文本
+    current     当前章索引
+    icons       每章图标文件路径列表，或 None（关闭图标接力）
+
+    关键：所有形状跨页同名（roulette-gear / roulette-spoke-k / chapter-icon-k /
+    roulette-label-k / roulette-hub），Morph 才会按对象补间出真旋转。
+    标签第 k 个的极角 = offset - k*step，所以第 i 页 k=i 恒为 0°（3 点钟）。
+    """
+    gear9 = cfg['wheel'] == 'gear9'
+    body = shapes.add_shape(MSO_SHAPE.GEAR_9 if gear9 else MSO_SHAPE.OVAL,
+                            Emu(int(cx - r)), Emu(int(cy - r)),
                             Emu(int(2 * r)), Emu(int(2 * r)))
-    gear.name = 'roulette-gear'
-    gear.rotation = offset % 360
-    gear.line.fill.background()
-    gear.shadow.inherit = False
-    set_gradient_fill(gear, color='767D84', ang_deg=45, alpha_start=100, alpha_end=100)
-    grad = gear._element.spPr.find(qn('a:gradFill'))
-    grad.find(qn('a:gsLst'))[1].find(qn('a:srgbClr')).set('val', '454A51')
-    add_outer_shadow(gear, blur_pt=8, dist_pt=14, dir_deg=30, alpha_pct=55)
+    body.name = 'roulette-gear'          # 名字沿用历史值，外部脚本按此名匹配
+    body.rotation = offset % 360
+    body.shadow.inherit = False
+    if pal.get('wheel_fill2'):
+        body.line.fill.background()
+        set_gradient_fill(body, color=pal['wheel_fill'], ang_deg=45,
+                          color2=pal['wheel_fill2'])
+    else:
+        body.fill.solid()
+        body.fill.fore_color.rgb = rgb(pal['wheel_fill'])
+        line = rgb(pal.get('wheel_line'))
+        if line is not None:
+            body.line.color.rgb = line
+            body.line.width = Pt(cfg['wheel_line_pt'])
+        else:
+            body.line.fill.background()
+    shadow = cfg['wheel_shadow'] if cfg['wheel_shadow'] is not None else gear9
+    if shadow:
+        add_outer_shadow(body, blur_pt=8, dist_pt=14, dir_deg=30, alpha_pct=35)
 
-    # 放射线：过圆心细矩形 + rotation，与标签错开 45°
-    w = int(1.4 * PT)
-    length = int(2 * r * 0.94)
-    for k in range(4):
-        ang = offset + (k + 0.5) * 90.0
-        spoke = shapes.add_shape(MSO_SHAPE.RECTANGLE, Emu(int(cx - length // 2)),
-                                 Emu(int(cy - w // 2)), Emu(length), Emu(w))
-        spoke.name = 'roulette-spoke-%d' % k
-        spoke.rotation = ang % 360
-        spoke.fill.solid()
-        spoke.fill.fore_color.rgb = STEEL
-        spoke.line.fill.background()
-        spoke.shadow.inherit = False
+    # 分格线：每条一个细矩形，一端在轮心、一端指向扇区分界（与标签错开半步）。
+    # 必须用「矩形 + rotation」而不是画直线，Morph 才能补间出旋转。
+    spoke_color = rgb(pal.get('spoke'))
+    if spoke_color is not None:
+        w = int(cfg['spoke_pt'] * PT)
+        length = int(r * cfg['spoke_len'])
+        for k in range(len(nums)):
+            ang = offset - (k + 0.5) * step
+            rad = math.radians(ang)
+            sx = cx + (length / 2.0) * math.cos(rad)
+            sy = cy + (length / 2.0) * math.sin(rad)
+            spoke = shapes.add_shape(MSO_SHAPE.RECTANGLE, Emu(int(sx - length / 2)),
+                                     Emu(int(sy - w / 2)), Emu(length), Emu(w))
+            spoke.name = 'roulette-spoke-%d' % k
+            spoke.rotation = ang % 360
+            spoke.fill.solid()
+            spoke.fill.fore_color.rgb = spoke_color
+            spoke.line.fill.background()
+            spoke.shadow.inherit = False
 
-    # 工具图标接力：当前章放大在标签左侧，其余缩小藏于轮心（被轴孔遮住）
+    # 图标接力：当前章放大在轮心右侧（标签左边），其余缩到 0.1in 藏在轮心，
+    # 由后画的轴孔盖住。图标必须加在轴孔之前。
     if icons:
-        big_size = int(0.85 * 914400)
-        small_size = int(0.10 * 914400)
-        big_cx = cx + int(r * 0.40)
-        for k in range(4):
+        big_size = int(cfg['icon_size_in'] * EMU_IN)
+        small_size = int(cfg['icon_hidden_in'] * EMU_IN)
+        big_cx = cx + int(r * cfg['icon_offset'])
+        for k in range(len(nums)):
             if k == current:
                 icx, icy, isize = big_cx, cy, big_size
             else:
                 icx, icy, isize = cx, cy, small_size
-            pic = shapes.add_picture(os.path.join(ASSETS, 'icon_%s.png' % icons[k]),
-                                     Emu(int(icx - isize / 2)), Emu(int(icy - isize / 2)),
-                                     Emu(isize), Emu(isize))
+            if not os.path.isfile(icons[k]):
+                raise ValueError('图标文件不存在：%s' % icons[k])
+            pic = shapes.add_picture(icons[k], Emu(int(icx - isize / 2)),
+                                     Emu(int(icy - isize / 2)), Emu(isize), Emu(isize))
             pic.name = 'chapter-icon-%d' % k
 
-    # 中心轴孔（盖住缩小的非当前图标）
-    hr = int(r * 0.20)
+    # 中心轴孔（不透明，负责盖住缩小的非当前图标）
+    hr = int(r * cfg['hub_ratio'])
     hub = shapes.add_shape(MSO_SHAPE.OVAL, Emu(int(cx - hr)), Emu(int(cy - hr)),
                            Emu(2 * hr), Emu(2 * hr))
     hub.name = 'roulette-hub'
     hub.fill.solid()
-    hub.fill.fore_color.rgb = RGBColor(0x1B, 0x1D, 0x20)
-    hub.line.color.rgb = STEEL
-    hub.line.width = Pt(1.0)
+    hub.fill.fore_color.rgb = rgb(pal['hub_fill'])
+    hub_line = rgb(pal.get('hub_line'))
+    if hub_line is not None:
+        hub.line.color.rgb = hub_line
+        hub.line.width = Pt(1.0)
+    else:
+        hub.line.fill.background()
     hub.shadow.inherit = False
 
-    # 横排两段式标签：小写 part 40pt + 数字 20pt，全部水平不旋转。
-    # 基准角 k*90°，每页 offset -90° → 当前章永远落在右缘 3 点钟方向。
-    label_w, label_h = int(1.5 * 914400), int(1.1 * 914400)
-    rr = int(r * 0.70)
-    for k, text in enumerate(labels):
-        num = text.split()[-1]
-        ang = offset + k * 90.0
+    # 横排两段式标签：前缀（默认 part）+ 编号，全部水平不旋转。
+    label_w = int(cfg['label_w_in'] * EMU_IN)
+    label_h = int(cfg['label_h_in'] * EMU_IN)
+    rr = int(r * cfg['label_radius'])
+    prefix = str(cfg['label_prefix'] or '')
+    for k, num in enumerate(nums):
+        ang = offset - k * step
         rad = math.radians(ang)
         px, py = cx + rr * math.cos(rad), cy + rr * math.sin(rad)
         box = shapes.add_textbox(Emu(int(px - label_w / 2)), Emu(int(py - label_h / 2)),
                                  Emu(label_w), Emu(label_h))
         box.name = 'roulette-label-%d' % k
-        box.rotation = 0
+        box.rotation = 0                 # 标签永远横排，不跟着转盘转
         tf = box.text_frame
         tf.word_wrap = True
         tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
         tf.vertical_anchor = MSO_ANCHOR.MIDDLE
-        p1 = tf.paragraphs[0]
-        p1.alignment = PP_ALIGN.CENTER
-        run1 = p1.add_run()
-        run1.text = 'part'
-        run1.font.size = Pt(40)
-        run1.font.color.rgb = TXT_MAIN
-        run1.font.name = '微软雅黑'
-        p2 = tf.add_paragraph()
+        if prefix:
+            p1 = tf.paragraphs[0]
+            p1.alignment = PP_ALIGN.CENTER
+            run1 = p1.add_run()
+            run1.text = prefix
+            run1.font.size = Pt(cfg['label_size'])
+            run1.font.color.rgb = rgb(pal['label'])
+            run1.font.name = _FONT
+            p2 = tf.add_paragraph()
+            p2.space_before = Pt(6)
+            num_size = cfg['label_num_size']
+            num_color = rgb(pal['label_num'])
+        else:
+            p2 = tf.paragraphs[0]
+            num_size = cfg['label_size']
+            num_color = rgb(pal['label'])
         p2.alignment = PP_ALIGN.CENTER
-        p2.space_before = Pt(6)
         run2 = p2.add_run()
         run2.text = num
-        run2.font.size = Pt(20)
-        run2.font.color.rgb = TXT_SUB
-        run2.font.name = '微软雅黑'
+        run2.font.size = Pt(num_size)
+        run2.font.color.rgb = num_color
+        run2.font.name = _FONT
 
 
-def add_content(shapes, part, section, title, points):
-    left = SW * 0.535
-    width = SW * 0.425
-    add_text(shapes, left, SH * 0.215, width, SH * 0.05,
-             '%s · %s' % (part, section), 14, color=ACCENT, bold=True, spacing=2)
-    add_text(shapes, left, SH * 0.285, width, SH * 0.13, title, 28, bold=True)
-    add_bar(shapes, left, SH * 0.435, SW * 0.055, Pt(2.2), STEEL)
+def add_gear_roulette(shapes, cx, cy, r, offset, labels, current, icons=None):
+    """旧签名的兼容封装（4 章时代的外部脚本按此名调用）：齿轮造型、逆时针、
+    扇区数按 labels 长度自动推。icons 现在要传文件路径，不再是素材名。"""
+    n = max(1, len(labels))
+    cfg = dict(DEFAULTS)
+    cfg['wheel'] = 'gear9'
+    pal = resolve_palette(cfg)
+    step = -360.0 / n
+    nums = [label_number({'part': t}, k) for k, t in enumerate(labels)]
+    add_wheel(shapes, cx, cy, r, offset, step, nums, current, icons, cfg, pal)
+
+
+def add_content(shapes, part, section, title, points, cfg, pal):
+    left = int(SW * cfg['content_left'])
+    width = int(SW * cfg['content_width'])
+    accent = rgb(pal['accent'])
+    head = ' · '.join(x for x in (part, section) if x)
+    add_text(shapes, left, SH * 0.215, width, SH * 0.05, head, 14,
+             color=accent, bold=True, spacing=2)
+    add_text(shapes, left, SH * 0.285, width, SH * 0.13, title,
+             cfg['content_title_size'], color=rgb(pal['title']), bold=True)
+    add_bar(shapes, left, SH * 0.435, int(SW * 0.055), Pt(2.2), accent)
     y = SH * 0.49
-    for pt_text in points:
-        add_bar(shapes, left, y + Pt(6), Pt(5), Pt(5), ACCENT)
+    for point in points:
+        add_bar(shapes, left, y + Pt(6), Pt(5), Pt(5), accent)
         add_text(shapes, left + Pt(14), y - Pt(2), width - Pt(14), SH * 0.10,
-                 pt_text, 14, color=TXT_SUB)
+                 point, cfg['content_point_size'], color=rgb(pal['text']))
         y += SH * 0.105
+
+
+def footer_left_x(cfg, cx, cy, r):
+    """页脚左边界：自动避开转盘在页脚那一行探出来的右缘。"""
+    if cfg.get('footer_left_x') is not None:
+        return int(SW * float(cfg['footer_left_x']))
+    y = SH * 0.945 + SH * 0.02
+    dy = abs(y - cy)
+    if dy >= r:
+        return int(SW * 0.035)
+    edge = cx + math.sqrt(r * r - dy * dy)
+    return int(max(SW * 0.035, min(edge + SW * 0.02, SW * 0.45)))
+
+
+# ---------------------------------------------------------------- config
+
+def resolve_config(cfg):
+    if not isinstance(cfg, dict):
+        raise ValueError('配置必须是 JSON 对象')
+    unknown = sorted(set(cfg) - ALLOWED_TOP)
+    if unknown:
+        raise ValueError('未知配置项：%s' % ', '.join(unknown))
+    out = dict(DEFAULTS)
+    out.update(cfg)
+    if out['wheel'] not in WHEELS:
+        raise ValueError('wheel 只能是 %s，收到 %r' % (' / '.join(WHEELS), out['wheel']))
+    if out['direction'] not in DIRECTIONS:
+        raise ValueError('direction 只能是 %s，收到 %r'
+                         % (' / '.join(DIRECTIONS), out['direction']))
+    colors = out.get('colors')
+    if colors is None:
+        colors = {}
+    if not isinstance(colors, dict):
+        raise ValueError('colors 必须是对象')
+    bad = sorted(set(colors) - set(PALETTE))
+    if bad:
+        raise ValueError('未知配色项：%s（可用：%s）'
+                         % (', '.join(bad), ', '.join(sorted(PALETTE))))
+    out['colors'] = colors
+    pages = out.get('pages') or []
+    if not isinstance(pages, list):
+        raise ValueError('pages 必须是数组')
+    for i, pg in enumerate(pages):
+        if not isinstance(pg, dict):
+            raise ValueError('pages[%d] 必须是对象' % i)
+        bad = sorted(set(pg) - ALLOWED_PAGE)
+        if bad:
+            raise ValueError('pages[%d] 未知字段：%s' % (i, ', '.join(bad)))
+        if not isinstance(pg.get('points') or [], list):
+            raise ValueError('pages[%d].points 必须是数组' % i)
+    cover = out.get('cover')
+    if cover is not None:
+        if not isinstance(cover, dict):
+            raise ValueError('cover 必须是对象或 null')
+        bad = sorted(set(cover) - ALLOWED_COVER)
+        if bad:
+            raise ValueError('cover 未知字段：%s' % ', '.join(bad))
+    return out
+
+
+def resolve_palette(cfg):
+    pal = dict(PALETTE)
+    if cfg.get('wheel') == 'gear9':
+        pal.update(GEAR9_PALETTE)
+    pal.update(cfg.get('colors') or {})
+    for value in pal.values():
+        rgb(value)                      # 提前校验，别让错色值跑到一半才炸
+    return pal
 
 
 # ---------------------------------------------------------------- build
 
 DEMO = {
-    'footer_left': '演示汇报 · 齿轮转盘',
+    'footer_left': '演示汇报 · 转盘',
     'footer_name': '汇报人',
-    'morph_ms': 1600,
-    'direction': 'ccw',
     'cover': {
         'eyebrow': '演示汇报 · 2026',
         'title': '演示标题',
@@ -278,31 +507,39 @@ DEMO = {
     },
     'pages': [
         {'part': 'PART 01', 'section': '第一章', 'title': '第一章核心观点',
-         'points': ['要点一：一句话', '要点二：一句话', '要点三：一句话'], 'icon': 'pen'},
+         'points': ['要点一：一句话', '要点二：一句话', '要点三：一句话']},
         {'part': 'PART 02', 'section': '第二章', 'title': '第二章核心观点',
-         'points': ['要点一：一句话', '要点二：一句话', '要点三：一句话'], 'icon': 'wrench'},
+         'points': ['要点一：一句话', '要点二：一句话', '要点三：一句话']},
         {'part': 'PART 03', 'section': '第三章', 'title': '第三章核心观点',
-         'points': ['要点一：一句话', '要点二：一句话', '要点三：一句话'], 'icon': 'pliers'},
+         'points': ['要点一：一句话', '要点二：一句话', '要点三：一句话']},
         {'part': 'PART 04', 'section': '第四章', 'title': '第四章核心观点',
-         'points': ['要点一：一句话', '要点二：一句话', '要点三：一句话'], 'icon': 'paper'},
+         'points': ['要点一：一句话', '要点二：一句话', '要点三：一句话']},
     ],
 }
 
 
-def build(out_path, cfg):
+def build(out_path, cfg, base_dir=None):
+    cfg = resolve_config(cfg)
     pages = cfg['pages']
-    assert len(pages) == 4, '本技能固定 4 章（90° 步长对应 4 扇区）'
-    labels = [pg.get('part', 'PART %02d' % (k + 1)) for k, pg in enumerate(pages)]
-    icons = [pg.get('icon', '') for pg in pages]
-    if not all(icons):
-        icons = None
-    footer_left = cfg.get('footer_left', '')
-    footer_name = cfg.get('footer_name', '')
-    morph_ms = cfg.get('morph_ms', 1600)
-    step = -90.0 if cfg.get('direction', 'ccw') == 'ccw' else 90.0
-    bg = os.path.join(ASSETS, 'bg_mech.png')
-    total = len(pages) + (1 if cfg.get('cover') else 0)
+    n = len(pages)
+    if not MIN_CHAPTERS <= n <= MAX_CHAPTERS:
+        raise ValueError('章数需在 %d~%d 之间，当前 %d' % (MIN_CHAPTERS, MAX_CHAPTERS, n))
 
+    global _FONT
+    _FONT = cfg['font']
+
+    pal = resolve_palette(cfg)
+    step_abs = 360.0 / n
+    step = -step_abs if cfg['direction'] == 'ccw' else step_abs
+
+    icons = [pg.get('icon') for pg in pages]
+    icons = [resolve_path(p, base_dir) for p in icons] if all(icons) else None
+    bg = resolve_path(cfg['background'], base_dir)
+    if bg and not os.path.isfile(bg):
+        raise ValueError('背景图不存在：%s' % bg)
+    nums = [label_number(pg, k) for k, pg in enumerate(pages)]
+
+    total = n + (1 if cfg.get('cover') else 0)
     prs = Presentation()
     prs.slide_width = Emu(SW)
     prs.slide_height = Emu(SH)
@@ -311,57 +548,82 @@ def build(out_path, cfg):
     cover = cfg.get('cover')
     if cover:
         s = prs.slides.add_slide(blank)
-        set_slide_bg_picture(s, bg)
+        if bg:
+            set_slide_bg_picture(s, bg)
         sh = s.shapes
         add_text(sh, SW * 0.06, SH * 0.20, SW * 0.60, SH * 0.05,
-                 cover.get('eyebrow', ''), 13, color=ACCENT, spacing=2)
+                 cover.get('eyebrow', ''), 13, color=rgb(pal['accent']), spacing=2)
         add_text(sh, SW * 0.06, SH * 0.29, SW * 0.60, SH * 0.15,
-                 cover.get('title', ''), 52, bold=True)
-        add_bar(sh, SW * 0.062, SH * 0.47, SW * 0.07, Pt(2.5), STEEL)
+                 cover.get('title', ''), 52, color=rgb(pal['title']), bold=True)
+        add_bar(sh, SW * 0.062, SH * 0.47, int(SW * 0.07), Pt(2.5), rgb(pal['accent']))
         add_text(sh, SW * 0.06, SH * 0.51, SW * 0.58, SH * 0.08,
-                 cover.get('claim', ''), 17, color=TXT_SUB)
+                 cover.get('claim', ''), 17, color=rgb(pal['text']))
         add_text(sh, SW * 0.06, SH * 0.63, SW * 0.58, SH * 0.05,
-                 cover.get('target', ''), 15, color=TXT_MAIN, bold=True)
+                 cover.get('target', ''), 15, color=rgb(pal['title']), bold=True)
         add_text(sh, SW * 0.06, SH * 0.71, SW * 0.62, SH * 0.05,
-                 cover.get('name_line', ''), 12, color=TXT_DIM)
+                 cover.get('name_line', ''), 12, color=rgb(pal['dim']))
         if cover.get('teacher'):
             add_text(sh, SW * 0.06, SH * 0.77, SW * 0.62, SH * 0.05,
-                     cover['teacher'], 12, color=TXT_DIM)
-        add_gif_pair(sh, SW * 0.80, SH * 0.40, SW * 0.20)
-        add_footer(sh, 1, total, footer_left, footer_name)
-        set_morph_transition(s, dur_ms=morph_ms)
+                     cover['teacher'], 12, color=rgb(pal['dim']))
+        add_footer(sh, 1, total, cfg['footer_left'], cfg['footer_name'], pal=pal)
+        set_morph_transition(s, dur_ms=cfg['morph_ms'],
+                             auto_advance_ms=cfg['auto_advance_ms'])
 
-    cx, cy = int(SW * 0.06), int(SH * 0.50)
-    r = int(SH * 0.56)
+    cx, cy = int(SW * cfg['wheel_cx']), int(SH * cfg['wheel_cy'])
+    r = int(SH * cfg['wheel_size'] / 2.0)
+    foot_x = footer_left_x(cfg, cx, cy, r)
     for i, pg in enumerate(pages):
         s = prs.slides.add_slide(blank)
-        set_slide_bg_picture(s, bg)
+        if bg:
+            set_slide_bg_picture(s, bg)
         sh = s.shapes
-        add_gear_roulette(sh, cx, cy, r, i * step, labels, i, icons)
-        add_content(sh, pg.get('part', labels[i]), pg.get('section', ''),
-                    pg.get('title', ''), pg.get('points', []))
-        add_gif_pair(sh, SW * 0.885, SH * 0.15, SW * 0.07)
-        add_footer(sh, i + total - 3, total, footer_left, footer_name, left_x=SW * 0.30)
-        set_morph_transition(s, dur_ms=morph_ms)
+        add_wheel(sh, cx, cy, r, i * step, step, nums, i, icons, cfg, pal)
+        add_content(sh, pg.get('part') or 'PART %02d' % (i + 1), pg.get('section', ''),
+                    pg.get('title', ''), pg.get('points') or [], cfg, pal)
+        add_footer(sh, i + 1 + (1 if cover else 0), total,
+                   cfg['footer_left'], cfg['footer_name'], left_x=foot_x, pal=pal)
+        set_morph_transition(s, dur_ms=cfg['morph_ms'],
+                             auto_advance_ms=cfg['auto_advance_ms'])
 
     prs.save(out_path)
     return out_path
 
 
 def main():
-    ap = argparse.ArgumentParser(description='机械风大齿轮转盘 PPT 生成器')
+    ap = argparse.ArgumentParser(description='翻页旋转转盘 PPT 生成器（风格无关）')
     ap.add_argument('-o', '--out', default='zhuanpan.pptx')
-    ap.add_argument('--config', default=None, help='JSON 配置（cover/pages/footer/morph_ms/direction）')
+    ap.add_argument('--config', default=None,
+                    help='JSON 配置；里面的相对路径以配置文件所在目录为基准')
+    ap.add_argument('--wheel', default=None, choices=list(WHEELS),
+                    help='覆盖配置里的转盘造型')
+    ap.add_argument('--direction', default=None, choices=list(DIRECTIONS),
+                    help='覆盖配置里的旋转方向')
     args = ap.parse_args()
-    cfg = DEMO
+
+    cfg = dict(DEMO)
+    base_dir = None
     if args.config:
         with open(args.config, encoding='utf-8') as f:
             cfg = json.load(f)
-    out = build(args.out, cfg)
-    print('saved:', os.path.abspath(out), os.path.getsize(out), 'bytes | pages:',
-          len(cfg['pages']) + (1 if cfg.get('cover') else 0),
-          '| direction:', cfg.get('direction', 'ccw'))
+        base_dir = os.path.dirname(os.path.abspath(args.config))
+    if args.wheel:
+        cfg['wheel'] = args.wheel
+    if args.direction:
+        cfg['direction'] = args.direction
+
+    try:
+        out = build(args.out, cfg, base_dir=base_dir)
+    except Exception as exc:                            # noqa: BLE001 - CLI 统一报错
+        print('ERROR: %s' % exc)
+        return 1
+
+    n = len(cfg.get('pages') or [])
+    print('saved: %s | %d bytes | pages: %d | chapters: %d (step %.1f) | wheel: %s'
+          ' | direction: %s'
+          % (os.path.abspath(out), os.path.getsize(out), n + (1 if cfg.get('cover') else 0),
+             n, 360.0 / n, cfg.get('wheel', 'disc'), cfg.get('direction', 'ccw')))
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

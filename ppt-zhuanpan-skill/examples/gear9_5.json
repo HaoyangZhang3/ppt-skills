@@ -1,0 +1,20 @@
+{
+  "wheel": "gear9",
+  "cover": null,
+  "footer_left": "示例汇报 · 齿轮五章",
+  "footer_name": "",
+  "morph_ms": 1400,
+  "direction": "ccw",
+  "pages": [
+    {"part": "PART 01", "section": "第一章", "title": "五章也能转：每页 72°",
+     "points": ["要点一：一句话", "要点二：一句话"]},
+    {"part": "PART 02", "section": "第二章", "title": "齿轮造型是可选的",
+     "points": ["要点一：一句话", "要点二：一句话"]},
+    {"part": "PART 03", "section": "第三章", "title": "标签永远落在 3 点钟",
+     "points": ["要点一：一句话", "要点二：一句话"]},
+    {"part": "PART 04", "section": "第四章", "title": "配色可整体替换",
+     "points": ["要点一：一句话", "要点二：一句话"]},
+    {"part": "PART 05", "section": "第五章", "title": "收尾与展望",
+     "points": ["要点一：一句话", "要点二：一句话"]}
+  ]
+}

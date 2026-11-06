@@ -1,0 +1,24 @@
+{
+  "cover": {
+    "eyebrow": "示例汇报 · 2026",
+    "title": "中性圆盘四章示例",
+    "claim": "默认造型：浅灰圆盘 + 白底，不带任何风格素材。",
+    "target": "副标题写在这里",
+    "name_line": "汇报人 · 单位 · 日期",
+    "teacher": ""
+  },
+  "footer_left": "示例汇报",
+  "footer_name": "汇报人",
+  "morph_ms": 1600,
+  "direction": "ccw",
+  "pages": [
+    {"part": "PART 01", "section": "起点", "title": "从一件小事说起",
+     "points": ["要点一：一句话", "要点二：一句话"]},
+    {"part": "PART 02", "section": "过程", "title": "做了哪些事",
+     "points": ["要点一：一句话", "要点二：一句话"]},
+    {"part": "PART 03", "section": "结果", "title": "拿到了什么结果",
+     "points": ["要点一：一句话", "要点二：一句话"]},
+    {"part": "PART 04", "section": "下一步", "title": "接下来打算怎么做",
+     "points": ["要点一：一句话", "要点二：一句话"]}
+  ]
+}
