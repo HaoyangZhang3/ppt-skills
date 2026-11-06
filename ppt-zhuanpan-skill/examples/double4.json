@@ -1,0 +1,57 @@
+{
+  "wheel": "double",
+  "direction": "ccw",
+  "morph_ms": 1200,
+  "inner_ratio": 0.44,
+  "ring_alpha": 55,
+  "label_prefix": "PART",
+  "label_size": 28,
+  "footer_left": "示例 · 内外双盘反转转盘",
+  "footer_name": "汇报人",
+  "pages": [
+    {
+      "part": "PART 01",
+      "section": "第一章",
+      "title": "内外双盘反向旋转",
+      "points": [
+        "外环逆时针转 360/N，内盘顺时针转同样角度",
+        "同一张照片填进两个盘，翻页时照片跟着盘转",
+        "当前章标签恒落在右缘 3 点钟，正对内容区"
+      ],
+      "photo": "photos/demo-1.png"
+    },
+    {
+      "part": "PART 02",
+      "section": "第二章",
+      "title": "标签沿圆周切向排布",
+      "points": [
+        "标签转到右缘是竖的，转到底下会倒过来",
+        "分格线只出现在环带上，不穿过内盘",
+        "内盘不透明，缩回轮心的图标会被它盖住"
+      ],
+      "photo": "photos/demo-2.png"
+    },
+    {
+      "part": "PART 03",
+      "section": "第三章",
+      "title": "每章各一张照片",
+      "points": [
+        "pages[].photo 逐章给路径，也可以只在顶层给一张统一用",
+        "外环照片用 ring_alpha 压淡，内盘保持清晰",
+        "换照片不影响 Morph：对象同名，转的还是同一个盘"
+      ],
+      "photo": "photos/demo-3.png"
+    },
+    {
+      "part": "PART 04",
+      "section": "第四章",
+      "title": "配色与照片一起调",
+      "points": [
+        "照片上白字最稳：label / spoke 默认已改白",
+        "深色背景图请同时把 colors 的 title / text 调亮",
+        "inner_spin 写 2 就是内盘转两倍，更像两组齿轮咬合"
+      ],
+      "photo": "photos/demo-4.png"
+    }
+  ]
+}
