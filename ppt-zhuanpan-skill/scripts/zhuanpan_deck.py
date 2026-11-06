@@ -110,6 +110,7 @@ DEFAULTS = {
     'label_tan_w_in': 3.2,    # 切向标签文本框长边（英寸）
     'label_tan_h_in': 0.7,    # 切向标签文本框短边（英寸）
     'inner_ratio': 0.44,      # double：内盘半径占外盘半径比例
+    'inner_edge': None,       # double 且未写 wheel_cx 时：内盘左缘落在页宽的这一比例处（负 = 越出左边界）
     'inner_spin': 1.0,        # double：内盘转角 = 外环转角 × inner_spin（反向）
     'ring_alpha': 55,         # double：外环照片不透明度（%）
     'inner_alpha': 100,       # double：内盘照片不透明度（%）
@@ -137,7 +138,8 @@ DEFAULTS = {
 # double 造型的几何默认（照参考视频量出来的比例），配置里显式写了就以配置为准
 DOUBLE_DEFAULTS = {
     'wheel_size': 1.17,
-    'wheel_cx': 0.15,
+    'wheel_cx': None,         # 留空 → 由 inner_edge 反推轮心，改照片尺寸/内盘比例都自动成立
+    'inner_edge': -0.012,     # 内盘左缘越出页面左边界一点点（刚好被裁掉一线），与参考图一致
     'content_left': 0.49,
     'content_width': 0.46,
     'hub_ratio': 0.0,
@@ -707,6 +709,16 @@ def resolve_config(cfg):
                          '必须是数字')
     if not 0.05 <= out['inner_ratio'] <= 0.95:
         raise ValueError('inner_ratio 需在 0.05~0.95 之间，收到 %r' % out['inner_ratio'])
+    if out['wheel'] == 'double':
+        if out.get('wheel_cx') is None and out.get('inner_edge') is None:
+            raise ValueError('double：wheel_cx 与 inner_edge 不能同时留空')
+        if out.get('inner_edge') is not None:
+            try:
+                out['inner_edge'] = float(out['inner_edge'])
+            except (TypeError, ValueError):
+                raise ValueError('inner_edge 必须是数字（占页宽比例，负值 = 越出页面左边界）')
+            if not -0.5 <= out['inner_edge'] <= 0.5:
+                raise ValueError('inner_edge 需在 -0.5~0.5 之间，收到 %r' % out['inner_edge'])
     colors = out.get('colors')
     if colors is None:
         colors = {}
@@ -835,8 +847,14 @@ def build(out_path, cfg, base_dir=None):
         set_morph_transition(s, dur_ms=cfg['morph_ms'],
                              auto_advance_ms=cfg['auto_advance_ms'])
 
-    cx, cy = int(SW * cfg['wheel_cx']), int(SH * cfg['wheel_cy'])
     r = int(SH * cfg['wheel_size'] / 2.0)
+    cy = int(SH * cfg['wheel_cy'])
+    if cfg['wheel'] == 'double' and cfg['wheel_cx'] is None:
+        # 轮心由「内盘左缘落在哪」反推：inner_edge 为负 → 内盘刚好被页面左边界裁掉一线
+        cx = int(r * max(0.05, min(0.95, float(cfg['inner_ratio'])))
+                 + SW * float(cfg['inner_edge']))
+    else:
+        cx = int(SW * float(cfg['wheel_cx']))
     foot_x = footer_left_x(cfg, cx, cy, r)
     for i, pg in enumerate(pages):
         s = prs.slides.add_slide(blank)
