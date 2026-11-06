@@ -13,13 +13,12 @@
           翻页时外环逆时针、内盘顺时针反向转；标签沿圆周切向排布（随盘转，
           转到下方会倒过来），分格线只出现在环带上。
 
-造型、章数、配色、照片、背景、图标、换页音效全部由配置决定，默认中性无风格、静音。
-技能不附带任何图片/音频素材（double 的照片、sound 的音效都要配置给路径）。
+造型、章数、配色、照片、背景、图标全部由配置决定，默认中性无风格。
+技能不附带任何图片素材（double 的照片必须由配置给路径）。
 
 用法：
   python zhuanpan_deck.py -o out.pptx                    # 内置演示（4 章 + 封面）
   python zhuanpan_deck.py -o out.pptx --config deck.json
-  # 换页音效：配置写 "sound": "sounds/click.wav"，即 PowerPoint 的「切换声音」，放映翻页时响
 
 依赖：python-pptx >= 0.6.19
 """
@@ -36,9 +35,6 @@ from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.oxml import parse_xml
 from pptx.oxml.ns import qn, nsdecls
-from pptx.opc.package import Part
-from pptx.opc.packuri import PackURI
-from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 PT = 12700
@@ -53,10 +49,6 @@ LABEL_MODES = ('flat', 'tangential')
 MC_NS = 'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"'
 P14_NS = 'xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main"'
 P159_NS = 'xmlns:p159="http://schemas.microsoft.com/office/powerpoint/2015/09/main"'
-
-# 换页音效支持的格式 → 包内 content type
-AUDIO_CT = {'.wav': 'audio/x-wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4',
-            '.mid': 'audio/midi', '.midi': 'audio/midi', '.aiff': 'audio/aiff'}
 
 # 默认中性配色（白底可读）。config 的 colors 可逐项覆盖；写成 '' 表示该项不用
 # （例如 wheel_line: '' → 转盘不描边，spoke: '' → 不画分格线）。
@@ -98,8 +90,6 @@ DEFAULTS = {
     'font': '微软雅黑',
     'morph_ms': 1600,
     'auto_advance_ms': None,
-    'sound': None,            # 换页音效文件路径（wav/mp3/m4a…）；给了就在每次翻页时播一下
-    'sound_volume': None,     # 0~100，None → 用 PowerPoint 默认音量
     'direction': 'ccw',
     'wheel': 'disc',
     'wheel_size': 1.12,       # 转盘直径 = wheel_size × 页高
@@ -252,67 +242,20 @@ def set_gradient_fill(shape, color='767D84', ang_deg=45, alpha_start=100, alpha_
     spPr.find(qn('a:prstGeom')).addnext(parse_xml(xml))
 
 
-def _audio_part(package, sound_path):
-    """把音效文件塞进包的 ppt/media/audioN.ext；同一个文件全篇只存一份。"""
-    cache = getattr(package, '_zp_audio_parts', None)
-    if cache is None:
-        cache = package._zp_audio_parts = {}
-    key = os.path.normcase(os.path.abspath(sound_path))
-    part = cache.get(key)
-    if part is not None:
-        return part
-    ext = os.path.splitext(key)[1]
-    ct = AUDIO_CT.get(ext)
-    if ct is None:
-        raise ValueError('音效只支持 %s，收到 %r'
-                         % (' / '.join(sorted(AUDIO_CT)), sound_path))
-    with open(key, 'rb') as f:
-        blob = f.read()
-    nums = []
-    for p in package.iter_parts():
-        name = str(p.partname)
-        if name.startswith('/ppt/media/audio'):
-            digits = ''.join(c for c in os.path.basename(name) if c.isdigit())
-            nums.append(int(digits) if digits else 0)
-    part = Part(PackURI('/ppt/media/audio%d%s' % (max(nums, default=0) + 1, ext)),
-                ct, package, blob)
-    cache[key] = part
-    return part
-
-
-def sound_action_xml(slide, sound_path, volume=None):
-    """PowerPoint「切换声音」的 XML 片段：p:sndAc/p:stSnd/p:snd r:embed=… 。
-    挂在本页 p:transition 里，换页那一刻自动播放，不需要额外的动画时间轴。"""
-    part = _audio_part(slide.part.package, sound_path)
-    rId = slide.part.relate_to(part, RT.AUDIO)
-    vol = ''
-    if volume is not None:
-        vol = ' volume="%d"' % int(max(0, min(100, float(volume))) * 1000)
-    name = os.path.basename(sound_path)
-    for a, b in (('&', '&amp;'), ('<', '&lt;'), ('>', '&gt;'), ('"', '&quot;')):
-        name = name.replace(a, b)
-    return ('<p:sndAc><p:stSnd><p:snd r:embed="%s"%s name="%s"/>'
-            '</p:stSnd></p:sndAc>' % (rId, vol, name))
-
-
-def set_morph_transition(slide, dur_ms=1600, auto_advance_ms=None,
-                         sound=None, sound_volume=None):
+def set_morph_transition(slide, dur_ms=1600, auto_advance_ms=None):
     """Morph（平滑）切换：mc:AlternateContent，Choice 走 p159:morph byObject，
-    Fallback 退化成普通切换（旧版 PowerPoint / WPS 不会报错，只是不平滑）。
-    sound 给音效文件路径时，在同一个 p:transition 里再挂上切换声音（换页时响）。"""
+    Fallback 退化成普通切换（旧版 PowerPoint / WPS 不会报错，只是不平滑）。"""
     sld = slide._element
     MC_TAG = '{http://schemas.openxmlformats.org/markup-compatibility/2006}AlternateContent'
     for child in list(sld):
         if child.tag == MC_TAG or child.tag == qn('p:transition'):
             sld.remove(child)
     adv = ' advTm="%d"' % auto_advance_ms if auto_advance_ms else ''
-    snd = sound_action_xml(slide, sound, sound_volume) if sound else ''
-    xml = ('<mc:AlternateContent %s %s %s %s><mc:Choice %s Requires="p159">'
-           '<p:transition spd="slow" p14:dur="%d"%s><p159:morph option="byObject"/>%s'
-           '</p:transition></mc:Choice><mc:Fallback><p:transition spd="slow"%s>%s'
-           '</p:transition></mc:Fallback></mc:AlternateContent>') % (
-        MC_NS, nsdecls('p'), nsdecls('r'), P14_NS, P159_NS,
-        dur_ms, adv, snd, adv, snd)
+    xml = ('<mc:AlternateContent %s %s %s><mc:Choice %s Requires="p159">'
+           '<p:transition spd="slow" p14:dur="%d"%s><p159:morph option="byObject"/>'
+           '</p:transition></mc:Choice><mc:Fallback><p:transition spd="slow"%s/>'
+           '</mc:Fallback></mc:AlternateContent>') % (MC_NS, nsdecls('p'), P14_NS,
+                                                      P159_NS, dur_ms, adv, adv)
     sld.append(parse_xml(xml))
 
 
@@ -872,23 +815,6 @@ def build(out_path, cfg, base_dir=None):
     bg = resolve_path(cfg['background'], base_dir)
     if bg and not os.path.isfile(bg):
         raise ValueError('背景图不存在：%s' % bg)
-    snd = resolve_path(cfg.get('sound'), base_dir)
-    if snd:
-        ext = os.path.splitext(snd)[1].lower()
-        if ext not in AUDIO_CT:
-            raise ValueError('音效只支持 %s，收到 %s'
-                             % (' / '.join(sorted(AUDIO_CT)), ext or snd))
-        if not os.path.isfile(snd):
-            raise ValueError('音效文件不存在：%s' % snd)
-        if cfg.get('sound_volume') is not None:
-            try:
-                vol = float(cfg['sound_volume'])
-            except (TypeError, ValueError):
-                raise ValueError('sound_volume 必须是 0~100 的数字')
-            if not 0 <= vol <= 100:
-                raise ValueError('sound_volume 需在 0~100 之间（百分比），收到 %r'
-                                 % cfg['sound_volume'])
-            cfg['sound_volume'] = vol
     nums = [label_number(pg, k) for k, pg in enumerate(pages)]
 
     total = n + (1 if cfg.get('cover') else 0)
@@ -940,10 +866,8 @@ def build(out_path, cfg, base_dir=None):
                     pg.get('title', ''), pg.get('points') or [], cfg, pal)
         add_footer(sh, i + 1 + (1 if cover else 0), total,
                    cfg['footer_left'], cfg['footer_name'], left_x=foot_x, pal=pal)
-        # 封面不加音效：翻到第一章时转盘才第一次真正被 Morph 补间，音效跟着转动走
         set_morph_transition(s, dur_ms=cfg['morph_ms'],
-                             auto_advance_ms=cfg['auto_advance_ms'],
-                             sound=snd, sound_volume=cfg['sound_volume'])
+                             auto_advance_ms=cfg['auto_advance_ms'])
 
     prs.save(out_path)
     return out_path
@@ -980,15 +904,13 @@ def main():
     n = len(cfg.get('pages') or [])
     wheel = cfg.get('wheel') or DEFAULTS['wheel']
     mode = cfg.get('label_mode') or ('tangential' if wheel == 'double' else 'flat')
-    snd = resolve_path(cfg.get('sound'), base_dir) if cfg.get('sound') else None
     print('saved: %s | %d bytes | pages: %d | chapters: %d (step %.1f) | wheel: %s'
-          ' | direction: %s | label: %s%s%s'
+          ' | direction: %s | label: %s%s'
           % (os.path.abspath(out), os.path.getsize(out),
              n + (1 if cfg.get('cover') else 0), n, 360.0 / n, wheel,
              cfg.get('direction') or DEFAULTS['direction'], mode,
              ' | photo fill' if any(p.get('photo') for p in (cfg.get('pages') or []))
-             or cfg.get('photo') else '',
-             ' | sound: %s' % os.path.basename(snd) if snd else ''))
+             or cfg.get('photo') else ''))
     return 0
 
 
