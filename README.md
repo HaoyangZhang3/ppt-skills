@@ -1,6 +1,6 @@
 # ppt-skills
 
-两个自包含的 PowerPoint 效果技能（Agent Skill 格式：`SKILL.md` + `scripts/`），用 python-pptx 程序化生成带 Morph 平滑切换的特效页。
+三个自包含的 PowerPoint 效果技能（Agent Skill 格式：`SKILL.md` + `scripts/`），用 python-pptx 程序化生成带 Morph 平滑切换的特效页。
 
 ## 包含的技能
 
@@ -8,6 +8,7 @@
 | --- | --- | --- |
 | `ppt-zhuanpan-skill` | 翻页旋转大转盘：左侧转盘只露右半边，每翻页整盘转 360/N（N=章数），当前章标签落在右缘 3 点钟方向，图标接力伸缩；三种造型——中性圆盘 / 9 齿齿轮 / 内外双盘（外环逆时针、内盘顺时针反向转，照片填进两个盘，标签沿圆周切向）；章数、配色、背景、图标全可配，默认中性、不附带素材 | python-pptx |
 | `ppt-loukong-skill` | 照片填充镂空字：3 页开场（上下遮罩左右错位 → 居中照片透字 → 上下退场揭晓）与 2 页电影式谢幕（THANKS → 上下滑出 → 底图放大 + 结束语） | python-pptx + Pillow |
+| `ppt-xqmsaf-skill` | 《喜鹊谋杀案》式悬疑暗场风：黑底 + 满页红蒙版压出深酒红、淡黄灯源与柔光锥、光锥照亮图片（合并形状→相交的离线等价）、开灯擦除动画、文字透明度 74%→0% 的聚光灯转移、跨页同名对象 Morph 衔接与"大图移出画外"丝滑转场 | python-pptx + Pillow |
 
 ## 安装
 
@@ -35,6 +36,12 @@ python ppt-loukong-skill/scripts/loukong_deck.py -o closing.pptx --config ppt-lo
 
 # 镂空字静态核验（页数/透明字孔/对象身份/Morph 时长）
 python ppt-loukong-skill/scripts/verify_deck.py opening.pptx --mode opening
+
+# 喜鹊谋杀案风：内置演示 / 带图演示 / 静态核验
+python ppt-xqmsaf-skill/scripts/build_xqmsaf.py -o xqmsaf.pptx
+python ppt-xqmsaf-skill/scripts/make_demo_assets.py
+python ppt-xqmsaf-skill/scripts/build_xqmsaf.py -o demo.pptx --config ppt-xqmsaf-skill/examples/demo.json
+python ppt-xqmsaf-skill/scripts/verify_deck.py demo.pptx
 ```
 
 配置字段见各技能 `SKILL.md`。
@@ -45,6 +52,7 @@ python ppt-loukong-skill/scripts/verify_deck.py opening.pptx --mode opening
 - `ppt-zhuanpan-skill` 不附带任何图片素材：照片填充（`wheel: "double"` 必需）、图标接力与背景图都要自己在配置里给路径；默认是白底中性圆盘。
 - `ppt-zhuanpan-skill/examples/photos/demo-*.png` 是为让 examples 开箱能跑而程序生成的抽象演示图（`scripts/make_demo_photos.py` 可重建），非真实照片、无版权风险；正式使用请替换为自己的照片。
 - `ppt-loukong-skill` 的标题是透明 PNG 字孔，生成后不能在 PowerPoint 里当文字编辑；改标题/字体请改配置重跑。
+- `ppt-xqmsaf-skill` 不附带真实照片：`examples/photos/` 是 `scripts/make_demo_assets.py` 程序生成的抽象塔影演示图（无版权风险），正式使用请换成 AI 生成或实拍处理的同风格图片；光照图是"合并形状→相交"的离线等价（Pillow 羽化扇形蒙版），生成后在 PowerPoint 里改光锥形状不会带着光照图走，要改请改配置重跑。
 - 仓库内 `assets/demo-bg.png` 为程序生成的抽象山景演示底图（`scripts/make_demo_asset.py` 可重建），非照片、无版权风险；正式使用请替换为自己的底图。
 
 ## 维护（改完即推送）

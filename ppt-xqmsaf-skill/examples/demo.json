@@ -1,0 +1,65 @@
+{
+  "morph_ms": 1400,
+  "wipe_ms": 500,
+  "pages": [
+    {
+      "type": "cover",
+      "kicker": "PRESENTATION · XQMSAF",
+      "title": "雾锁重塔",
+      "en": "PAGODAS IN THE FOG",
+      "sub": "把悬疑写进每一页：暗场、灯火与平滑的转场。",
+      "image": "photos/cover.jpg",
+      "image_box": [0, 0, 1, 1]
+    },
+    {
+      "type": "section",
+      "num": "Ⅰ",
+      "kicker": "PART ONE",
+      "title": "灯与影",
+      "en": "THE LAMP & THE SHADOW"
+    },
+    {
+      "type": "content",
+      "kicker": "Ⅱ · 目录",
+      "title": "三座塔",
+      "en": "Three Pagodas",
+      "body": ["Ⅰ　燃灯塔 · Randeng Pagoda",
+               "Ⅱ　铁塔 · Iron Pagoda",
+               "Ⅲ　瑞光塔 · Ruiguang Pagoda"],
+      "image": "photos/tower.jpg",
+      "image_box": [0.90, 0.085, 0.42, 0.83],
+      "cone": {"length": 0.02}
+    },
+    {
+      "type": "content",
+      "kicker": "Ⅲ · 其一",
+      "title": "燃灯塔",
+      "en": "Randeng Buddha Relic Pagoda",
+      "body": ["木架撑起层层飞檐，", "像一只收拢翅膀的鸟。",
+               "灰瓦覆着倾斜的屋顶，", "灯火在雾里亮了一千年。"],
+      "image": "photos/tower.jpg",
+      "image_box": [0.52, 0.085, 0.42, 0.83],
+      "lit": true,
+      "text_transparency": 74
+    },
+    {
+      "type": "content",
+      "kicker": "Ⅲ · 其二",
+      "title": "铁塔",
+      "en": "Iron Pagoda · Youguo Temple",
+      "body": ["十三层铁色琉璃，", "风吹过时像翻书的声音。",
+               "灯光移过来，", "故事就翻到了下一页。"],
+      "image": "photos/tower.jpg",
+      "image_box": [0.52, 0.085, 0.42, 0.83],
+      "lit": true,
+      "lamp": [0.30, 0.62, 0.055],
+      "cone": {"dir": 345}
+    },
+    {
+      "type": "end",
+      "title": "第一幕 · 终",
+      "sub": "灯光藏进灯源，故事留给下一页。",
+      "en": "END OF ACT ONE"
+    }
+  ]
+}
