@@ -88,6 +88,11 @@ def main(argv=None):
             wipes = re.findall(r'filter="wipe\(down\)"', xml)
             timing_info = None
             if timing is not None:
+                ids = re.findall(r'<p:cTn id="(\d+)"',
+                                 etree.tostring(timing, encoding='unicode'))
+                dup = sorted({x for x in ids if ids.count(x) > 1})
+                fail(not dup, '第 %d 页动画 cTn id 重复（放映会崩溃）：%s'
+                     % (n, ', '.join(dup)))
                 fail(len(wipes) >= 1, '第 %d 页有 timing 却没有擦除(自顶部)动画' % n)
                 timing_info = '%d wipe' % len(wipes)
                 if 'randombar(' in xml:

@@ -189,7 +189,7 @@ def set_timing(slide, groups):
     """
     if not groups:
         return
-    nid = [1]
+    nid = [2]                     # 1=tmRoot、2=mainSeq，其余从 3 起，绝不能重复
 
     def next_id():
         nid[0] += 1
@@ -202,20 +202,25 @@ def set_timing(slide, groups):
         for ei, eff in enumerate(group['effects']):
             pid, sub, filt = KINDS[eff['kind']]
             node = 'afterEffect' if ei == 0 else 'withEffect'
+            if eff['kind'] == 'bars':      # 文本按段落目标（对齐 PowerPoint 原生写法）
+                tgt = ('<p:spTgt spid="%d"><p:txEl><p:pRg st="0" end="0"/></p:txEl>'
+                       '</p:spTgt>' % eff['spid'])
+            else:                          # 形状目标
+                tgt = ('<p:spTgt spid="%d"><p:bg/></p:spTgt>' % eff['spid'])
             inner.append(
                 '<p:par><p:cTn id="%d" presetID="%d" presetClass="entr" '
                 'presetSubtype="%d" fill="hold" grpId="0" nodeType="%s">'
                 '<p:stCondLst><p:cond delay="%d"/></p:stCondLst><p:childTnLst>'
                 '<p:set><p:cBhvr><p:cTn id="%d" dur="1" fill="hold">'
                 '<p:stCondLst><p:cond delay="0"/></p:stCondLst></p:cTn>'
-                '<p:tgtEl><p:spTgt spid="%d"/></p:tgtEl>'
+                '<p:tgtEl>%s</p:tgtEl>'
                 '<p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst>'
                 '</p:cBhvr><p:to><p:strVal val="visible"/></p:to></p:set>'
                 '<p:animEffect transition="in" filter="%s"><p:cBhvr>'
-                '<p:cTn id="%d" dur="%d"/><p:tgtEl><p:spTgt spid="%d"/></p:tgtEl>'
+                '<p:cTn id="%d" dur="%d"/><p:tgtEl>%s</p:tgtEl>'
                 '</p:cBhvr></p:animEffect></p:childTnLst></p:cTn></p:par>'
                 % (next_id(), pid, sub, node, int(eff.get('delay', 0)), next_id(),
-                   eff['spid'], filt, next_id(), int(eff['dur']), eff['spid']))
+                   tgt, filt, next_id(), int(eff['dur']), tgt))
         body.append(
             '<p:par><p:cTn id="%d" fill="hold"><p:stCondLst>'
             '<p:cond delay="indefinite"/><p:cond evt="onBegin" delay="%d">'
@@ -225,8 +230,6 @@ def set_timing(slide, groups):
             '</p:childTnLst></p:cTn></p:par>'
             % (next_id(), int(group.get('delay', 0)), next_id(), ''.join(inner)))
 
-    bld = ''.join('<p:bldP spid="%d" grpId="0" build="allAtOnce"/>' % e['spid']
-                  for g in groups for e in g['effects'])
     xml = ('<p:timing %s><p:tnLst><p:par><p:cTn id="1" dur="indefinite" '
            'restart="never" nodeType="tmRoot"><p:childTnLst>'
            '<p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" '
@@ -234,8 +237,8 @@ def set_timing(slide, groups):
            '<p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/>'
            '</p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt="onNext" '
            'delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst>'
-           '</p:seq></p:childTnLst></p:cTn></p:par></p:tnLst>'
-           '<p:bldLst>%s</p:bldLst></p:timing>') % (nsdecls('p'), ''.join(body), bld)
+           '</p:seq></p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>') % (
+        nsdecls('p'), ''.join(body))
     sld = slide._element
     old = sld.find(qn('p:timing'))
     if old is not None:
