@@ -92,6 +92,10 @@ python scripts/verify_deck.py out.pptx                                    # 静�
 - 页数 1~12。长标题会挤：调小 `title_size` 或拆 `\n`；正文超过 6 行请拆页。
 - 深色页上别用纯黑字；`palette` 里 `cream/dim/accent` 都可改，但先跑 `verify_deck.py` 再渲染看效果。
 
+## 参考资料
+
+- `references/creative-method.md` —— 视频原版创作方法全记录（PowerPoint 原生操作步骤、风格量化档案、与本技能的参数对照表）。想手工在 PowerPoint 里复刻、或想改机制前先读它。
+
 ## QA 检查单
 
 1. `python scripts/verify_deck.py out.pptx` → PASS：图层齐全、wash alpha = (100-47)%、cone alpha = 55%、光锥/光晕有柔边、第 2 页起有 Morph（1400ms）、有 timing 的页含 `wipe(down)`。
