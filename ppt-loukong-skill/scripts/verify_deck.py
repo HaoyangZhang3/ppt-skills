@@ -62,14 +62,49 @@ def main(argv=None):
             fail(len(values) == 1, '%s 跨页图像内容不一致' % name)
         sw, sh = prs.slide_width, prs.slide_height
         center = 0 if args.mode == 'closing' else 1
-        fail(positions[center]['!!loukong-mask-top'][0] == 0 and
+
+        def hole_span(blob):
+            """透明字孔（alpha<128）在遮罩图里的水平范围与图宽。"""
+            with Image.open(io.BytesIO(blob)) as im:
+                w_px, _ = im.size
+                holes = im.getchannel('A').point(lambda v: 255 if v < 128 else 0)
+                bb = holes.getbbox()
+            fail(bb is not None, '遮罩缺少透明字孔')
+            return bb, w_px
+
+        spans = {name: hole_span(
+            {s.name: s for s in prs.slides[0].shapes}[name].image.blob)
+            for name in NAMES[1:]}
+
+        def hole_page_x(slide_index, name, side):
+            left, _, width, _ = positions[slide_index][name]
+            bb, w_px = spans[name]
+            k = width / float(w_px)
+            return left + (bb[0] if side == 'left' else bb[2]) * k, k
+
+        for name in NAMES[1:]:
+            widths = [p[name][2] for p in positions]
+            fail(len(set(widths)) == 1, '%s 跨页显示宽度不一致' % name)
+            fail(widths[0] > sw, '%s 应为宽幅遮罩（比页面宽）' % name)
+        overhang = (positions[center]['!!loukong-mask-top'][2] - sw) // 2
+        fail(positions[center]['!!loukong-mask-top'][0] == -overhang and
              positions[center]['!!loukong-mask-top'][1] == 0, '居中页上遮罩位置错误')
-        fail(positions[center]['!!loukong-mask-bottom'][0] == 0 and
+        fail(positions[center]['!!loukong-mask-bottom'][0] == -overhang and
              positions[center]['!!loukong-mask-bottom'][1] == sh // 2,
              '居中页下遮罩位置错误')
+        for name in NAMES[1:]:
+            hx0, k = hole_page_x(center, name, 'left')
+            hx1, _ = hole_page_x(center, name, 'right')
+            fail(hx0 >= -k and hx1 <= sw + k, '居中页 %s 字孔未落在页面内' % name)
         if args.mode == 'opening':
-            fail(positions[0]['!!loukong-mask-top'][0] < 0 and
-                 positions[0]['!!loukong-mask-bottom'][0] > 0, '开场首页左右错位不成立')
+            for name in NAMES[1:]:
+                left = positions[0][name][0]
+                fail(left <= 0 and left + positions[0][name][2] >= sw,
+                     '首页 %s 未盖满页面' % name)
+            hx0, k = hole_page_x(0, '!!loukong-mask-top', 'left')
+            fail(hx0 >= sw - k, '首页上条字孔未整体停在页面右侧之外')
+            hx1, _ = hole_page_x(0, '!!loukong-mask-bottom', 'right')
+            fail(hx1 <= k, '首页下条字孔未整体停在页面左侧之外')
         last = positions[-1]
         fail(last['!!loukong-mask-top'][1] + last['!!loukong-mask-top'][3] <= 0,
              '上遮罩未完全退出画面')

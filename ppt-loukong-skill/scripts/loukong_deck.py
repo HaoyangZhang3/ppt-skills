@@ -135,13 +135,21 @@ def add_cover_picture(slide, path, scale):
 
 
 def make_mask_pair(title, font_path, font_size_pt, text_x, text_y,
-                   mask_color, mask_opacity, out_dir):
-    """4 倍像素面积（2×2）超采样，分别裁出上下独立遮罩。"""
+                   mask_color, mask_opacity, initial_offset, out_dir):
+    """宽幅遮罩：比页面两侧各宽出一段余量，字孔仍按 text_x/text_y 落在页面坐标上。
+
+    余量足够大，首页才能把字孔整孔平移到页面之外（上条在右缘外、下条在左缘外），
+    而遮罩主体始终盖满页面；Morph 只补间位置，不换图。
+    4 倍像素面积（2×2）超采样，分别裁出上下独立遮罩。
+    """
     ss = 2
-    size = (PX_W * ss, PX_H * ss)
+    emu_per_px = SW / float(PX_W)
     opacity = int(round(float(mask_opacity) * 255 / 100))
-    alpha = Image.new('L', size, opacity)
-    draw = ImageDraw.Draw(alpha)
+    # 先在页面大小的画布上试排：字号仍只受页面约束，与遮罩加宽无关；
+    # 重心 text_x 偏离中线时，字宽上限随之收紧，保证标题完整落在页面内
+    max_w_px = min(0.90, 2 * min(float(text_x), 1.0 - float(text_x))) * PX_W * ss
+    scratch = Image.new('L', (PX_W * ss, PX_H * ss), opacity)
+    draw = ImageDraw.Draw(scratch)
     requested = int(round(float(font_size_pt) * 2 * ss))
     spacing_ratio = 0.12
     font = None
@@ -153,32 +161,46 @@ def make_mask_pair(title, font_path, font_size_pt, text_x, text_y,
             align='center')
         width = trial_bbox[2] - trial_bbox[0]
         height = trial_bbox[3] - trial_bbox[1]
-        if width <= PX_W * ss * 0.90 and height <= PX_H * ss * 0.74:
+        if width <= max_w_px and height <= PX_H * ss * 0.74:
             font, bbox = trial, trial_bbox
             break
     if font is None:
         raise ValueError('标题过长，无法放入画面：%s' % title)
-    cx, cy = float(text_x) * size[0], float(text_y) * size[1]
+    hole_half_emu = int(round((bbox[2] - bbox[0]) / 2.0 / ss * emu_per_px))
+    # 单侧余量：字孔整孔出页 + 遮罩仍盖满页面，取上/下两条中更苛刻的一方
+    overhang_emu = int(round(
+        (float(initial_offset) + max(float(text_x), 1.0 - float(text_x))) * SW
+        + hole_half_emu + SW * 0.01))
+    mask_w_emu = SW + 2 * overhang_emu
+    mask_px_w = int(round(mask_w_emu / emu_per_px))
+    alpha = Image.new('L', (mask_px_w * ss, PX_H * ss), opacity)
+    draw = ImageDraw.Draw(alpha)
+    cx = (overhang_emu + float(text_x) * SW) / emu_per_px * ss
+    cy = float(text_y) * PX_H * ss
     pos = (cx - (bbox[0] + bbox[2]) / 2.0,
            cy - (bbox[1] + bbox[3]) / 2.0)
     draw.multiline_text(pos, title, font=font, fill=0,
                         spacing=int(font.size * spacing_ratio), align='center')
-    full = Image.new('RGBA', size, rgba_tuple(mask_color) + (0,))
-    full.putalpha(alpha)
-    half_h = size[1] // 2
+    half_h = PX_H * ss // 2
     paths = []
-    for label, box in [('top', (0, 0, size[0], half_h)),
-                       ('bottom', (0, half_h, size[0], size[1]))]:
-        part = full.crop(box).resize((PX_W, PX_H // 2), Image.Resampling.LANCZOS)
+    for label, box in [('top', (0, 0, mask_px_w * ss, half_h)),
+                       ('bottom', (0, half_h, mask_px_w * ss, PX_H * ss))]:
+        part_alpha = alpha.crop(box)
+        part = Image.new('RGBA', part_alpha.size, rgba_tuple(mask_color) + (0,))
+        part.putalpha(part_alpha)
+        part = part.resize((mask_px_w, PX_H // 2), Image.Resampling.LANCZOS)
         path = os.path.join(out_dir, 'mask-%s.png' % label)
         part.save(path, optimize=True)
         paths.append(path)
-    return paths
+    geom = {'overhang': overhang_emu, 'width': int(round(mask_w_emu)),
+            'hole_center': overhang_emu + int(round(float(text_x) * SW)),
+            'hole_half': hole_half_emu}
+    return paths, geom
 
 
-def add_mask(slide, path, name, x, y):
+def add_mask(slide, path, name, x, y, width):
     pic = slide.shapes.add_picture(path, Emu(int(x)), Emu(int(y)),
-                                   Emu(SW), Emu(SH // 2))
+                                   Emu(int(width)), Emu(SH // 2))
     pic.name = name
     return pic
 
@@ -241,6 +263,10 @@ def build(cfg, output, config_dir):
     for key in ('text_x', 'text_y'):
         if not 0 <= float(cfg[key]) <= 1:
             raise ValueError('%s 必须在 0～1 之间。' % key)
+    if not 0 < float(cfg['text_x']) < 1:
+        raise ValueError('text_x 必须在 0～1 之间（不能取 0 或 1）。')
+    if not 0 <= float(cfg['initial_offset']) <= 1:
+        raise ValueError('initial_offset（页外余量）必须在 0～1 之间。')
     if not 0 <= float(cfg['mask_opacity']) <= 100:
         raise ValueError('mask_opacity 必须在 0～100 之间。')
     if not 0 <= float(cfg['scrim_opacity']) <= 100:
@@ -256,9 +282,13 @@ def build(cfg, output, config_dir):
     blank = prs.slide_layouts[6]
     page_count = 3 if mode == 'opening' else 2
     with tempfile.TemporaryDirectory(prefix='ppt-loukong-') as tmp:
-        masks = make_mask_pair(title, font_path, font_size, cfg['text_x'],
-                               cfg['text_y'], cfg['mask_color'],
-                               cfg['mask_opacity'], tmp)
+        masks, geom = make_mask_pair(title, font_path, font_size, cfg['text_x'],
+                                     cfg['text_y'], cfg['mask_color'],
+                                     cfg['mask_opacity'],
+                                     float(cfg['initial_offset']), tmp)
+        overhang, mask_w = geom['overhang'], geom['width']
+        hole_c, hole_u = geom['hole_center'], geom['hole_half']
+        io_emu = int(round(SW * float(cfg['initial_offset'])))
         for index in range(page_count):
             slide = prs.slides.add_slide(blank)
             slide.background.fill.solid()
@@ -267,16 +297,19 @@ def build(cfg, output, config_dir):
             add_cover_picture(slide, image_path,
                               cfg['image_scale'] if is_reveal else 1.0)
             if mode == 'opening' and index == 0:
-                top_x, top_y = -SW * float(cfg['initial_offset']), 0
-                bottom_x, bottom_y = SW * float(cfg['initial_offset']), SH // 2
-            elif is_reveal:
-                top_x, top_y = 0, -SH // 2
-                bottom_x, bottom_y = 0, SH
+                # 首页全黑：上条字孔整孔停在右缘之外，下条停在左缘之外
+                top_x = SW + io_emu - (hole_c - hole_u)
+                bottom_x = -io_emu - (hole_c + hole_u)
+                top_y, bottom_y = 0, SH // 2
             else:
-                top_x, top_y = 0, 0
-                bottom_x, bottom_y = 0, SH // 2
-            add_mask(slide, masks[0], '!!loukong-mask-top', top_x, top_y)
-            add_mask(slide, masks[1], '!!loukong-mask-bottom', bottom_x, bottom_y)
+                # 居中页与退场页：字孔落在页面坐标上，只动位置不换图
+                top_x = bottom_x = -overhang
+                if is_reveal:
+                    top_y, bottom_y = -SH // 2, SH
+                else:
+                    top_y, bottom_y = 0, SH // 2
+            add_mask(slide, masks[0], '!!loukong-mask-top', top_x, top_y, mask_w)
+            add_mask(slide, masks[1], '!!loukong-mask-bottom', bottom_x, bottom_y, mask_w)
             if mode == 'closing' and is_reveal:
                 add_closing_text(slide, cfg)
             if index > 0:
