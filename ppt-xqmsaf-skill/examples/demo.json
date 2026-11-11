@@ -19,16 +19,14 @@
       "en": "THE LAMP & THE SHADOW"
     },
     {
-      "type": "content",
+      "type": "toc",
       "kicker": "Ⅱ · 目录",
       "title": "三座塔",
       "en": "Three Pagodas",
       "body": ["Ⅰ　燃灯塔 · Randeng Pagoda",
                "Ⅱ　铁塔 · Iron Pagoda",
                "Ⅲ　瑞光塔 · Ruiguang Pagoda"],
-      "image": "photos/tower.jpg",
-      "image_box": [0.90, 0.085, 0.42, 0.83],
-      "cone": {"length": 0.02}
+      "image": "photos/tower.jpg"
     },
     {
       "type": "content",

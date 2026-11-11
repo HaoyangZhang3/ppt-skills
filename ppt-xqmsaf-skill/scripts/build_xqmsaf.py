@@ -90,6 +90,11 @@ TYPE_DEFAULTS = {
         'cone': {'dir': 15, 'spread': 50, 'length': 1.0},
         'glow': True, 'light_on': False,
     },
+    'toc': {
+        'lamp': (0.285, 0.265, 0.055),
+        'cone': {'dir': 15, 'spread': 50, 'length': 0.02},   # 灯先藏进灯源
+        'glow': True, 'light_on': False,
+    },
     'end': {
         'lamp': (0.50, 0.40, 0.048),
         'cone': {'dir': 90, 'spread': 52, 'length': 0.02},
@@ -97,6 +102,10 @@ TYPE_DEFAULTS = {
     },
 }
 TYPES = tuple(TYPE_DEFAULTS)
+
+# 各页型的图片默认摆放（未写 image_box 时生效）：toc 默认把大图放在画外，
+# 作为"下一内容页大图滑入"的衔接起点。
+TYPE_IMAGE_BOX = {'toc': [0.90, 0.085, 0.42, 0.83]}
 
 ALLOWED_TOP = set(DEFAULTS)
 ALLOWED_PAGE = {'type', 'kicker', 'title', 'en', 'sub', 'body', 'num', 'image',
@@ -486,7 +495,8 @@ def _lamp_emu(page):
 
 
 def _page_box(page, cfg):
-    b = page.get('image_box') or [0.52, 0.085, 0.42, 0.83]
+    b = (page.get('image_box') or TYPE_IMAGE_BOX.get(page['type'])
+         or [0.52, 0.085, 0.42, 0.83])
     if isinstance(b, dict):
         b = [b.get('x', 0.52), b.get('y', 0.085), b.get('w', 0.42), b.get('h', 0.83)]
     return (int(SW * float(b[0])), int(SH * float(b[1])),
@@ -557,7 +567,8 @@ def _texts_content(sh, page, transparency):
     body = page.get('body') or []
     body_text = '\n'.join(body) if isinstance(body, list) else str(body)
     add_text(sh, SW * 0.065, SH * 0.500, SW * 0.385, SH * 0.33, body_text,
-             page.get('body_size') or 13, _PAL['cream'], line_spacing=1.55,
+             page.get('body_size') or (15 if page['type'] == 'toc' else 13),
+             _PAL['cream'], line_spacing=1.55,
              transparency=transparency, name='xq-body')
 
 
@@ -582,7 +593,7 @@ def _texts(sh, page, transparency=None):
         _texts_cover(sh, page)
     elif t == 'section':
         _texts_section(sh, page)
-    elif t == 'content':
+    elif t in ('content', 'toc'):
         _texts_content(sh, page, transparency if transparency is not None
                        else page.get('text_transparency') or 0)
     elif t == 'end':
@@ -601,7 +612,7 @@ def render_page(slide, idx, total, page, cfg):
     _draw_base(slide, page, cfg)
 
     trans = page.get('text_transparency')
-    if t == 'content' and trans is None:
+    if t in ('content', 'toc') and trans is None:
         trans = 0
     _texts(slide.shapes, page, trans)
     _add_footer(slide.shapes, idx, total)
@@ -710,13 +721,12 @@ DEMO = {
          'sub': '把悬疑写进每一页：暗场、灯火与平滑的转场。'},
         {'type': 'section', 'num': 'Ⅰ', 'kicker': 'PART ONE',
          'title': '灯与影', 'en': 'THE LAMP & THE SHADOW'},
-        {'type': 'content',
+        {'type': 'toc',
          'kicker': 'Ⅱ · 目录', 'title': '三座塔',
          'en': 'Three Pagodas',
          'body': ['Ⅰ　燃灯塔 · Randeng Pagoda',
                   'Ⅱ　铁塔 · Iron Pagoda',
-                  'Ⅲ　瑞光塔 · Ruiguang Pagoda'],
-         'cone': {'length': 0.02}},
+                  'Ⅲ　瑞光塔 · Ruiguang Pagoda']},
         {'type': 'content',
          'kicker': 'Ⅲ · 其一', 'title': '燃灯塔',
          'en': 'Randeng Buddha Relic Pagoda',

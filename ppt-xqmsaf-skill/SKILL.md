@@ -45,9 +45,8 @@ python scripts/verify_deck.py out.pptx                                    # 静�
     {"type": "cover", "kicker": "PRESENTATION", "title": "标题", "en": "ENGLISH",
      "sub": "副标题", "image": "photos/cover.jpg", "image_box": [0, 0, 1, 1]},
     {"type": "section", "num": "Ⅰ", "kicker": "PART ONE", "title": "章节", "en": "EN"},
-    {"type": "content", "kicker": "Ⅱ · 目录", "title": "目录",
-     "body": ["一行一条"], "image": "photos/a.jpg",
-     "image_box": [0.90, 0.085, 0.42, 0.83], "cone": {"length": 0.02}},
+    {"type": "toc", "kicker": "Ⅱ · 目录", "title": "目录",
+     "body": ["一行一条"], "image": "photos/a.jpg"},
     {"type": "content", "title": "正文页", "body": ["..."],
      "image": "photos/a.jpg", "image_box": [0.52, 0.085, 0.42, 0.83],
      "lit": true, "text_transparency": 74},
@@ -60,7 +59,7 @@ python scripts/verify_deck.py out.pptx                                    # 静�
 
 | 字段 | 说明 |
 | --- | --- |
-| `type` | `cover` / `section` / `content` / `end` |
+| `type` | `cover` / `section` / `content` / `toc` / `end` |
 | `kicker` / `title` / `en` / `sub` / `num` | 小标签 / 主标题（`\n` 分行）/ 英文行 / 副标题 / 章节罗马数字 |
 | `body` | content 页正文，字符串数组，一行一条 |
 | `image` / `image_box` | 图片路径；页面占比 `[x, y, w, h]`（0~1）。默认 content `[0.52, 0.085, 0.42, 0.83]` |
@@ -80,7 +79,29 @@ python scripts/verify_deck.py out.pptx                                    # 静�
 | cover | 0.705, 0.255, 0.078 | 118° / 66° / 1.55 | ✓ |
 | section | 0.80, 0.285, 0.062 | 148° / 60° / 1.50 | ✓ |
 | content | 0.285, 0.265, 0.055 | 15° / 50° / 1.00 | ✗ |
+| toc | 0.285, 0.265, 0.055 | 15° / 50° / 0.02（灯先藏起，等翻页展开） | ✗ |
 | end | 0.50, 0.40, 0.048 | 90° / 52° / 0.02（藏灯） | ✗ |
+
+## 目录页（TOC）
+
+`type: "toc"` 就是"目录"页型：文字布局同 content（kicker 写"目录"、`body` 一行一个条目、字号自动大一号），但它**默认就是衔接的起点**——光锥缩进灯源（`cone.length: 0.02`）、大图默认放在画外（`image_box: [0.90, 0.085, 0.42, 0.83]`）。视频里"目录部分的灯光和衔接怎么弄"的完整做法：
+
+1. 做好目录页（文字列表 + 灯源，灯光先藏在灯里）
+2. **复制目录页**当下一张内容页的底稿
+3. 新页：**拉大图片**（`image_box` 摆正到 `[0.52, …]`）、**文字字号调大**（`title_size`）、**加上内容**（`body`）、光锥恢复正常长度
+4. **回到目录页**：把同一张大图**粘贴到画面外**（toc 的默认位置）
+5. 两页之间**平滑切换**：播放时大图从画外滑入、灯从灯源里张开
+
+图层里"选中要讲解的部分置于顶层、其余置于底层"在生成器里已由固定图层顺序实现（底图 → 红蒙版 → 光照图 → 光锥 → 灯 → 文字；内容页 `lit` + 灯光对准即"点亮要讲解的部分"），配置里不需要手工调层。
+
+```json
+{"type": "toc", "kicker": "Ⅱ · 目录", "title": "三座塔",
+ "body": ["Ⅰ 燃灯塔", "Ⅱ 铁塔", "Ⅲ 瑞光塔"], "image": "photos/tower.jpg"},
+{"type": "content", "title": "燃灯塔", "body": ["…"],
+ "image": "photos/tower.jpg", "lit": true, "text_transparency": 74}
+```
+
+目录页不点灯、不出光照图；灯的亮相留给下一页 Morph 展开。
 
 ## 页面衔接（Morph）
 
@@ -88,16 +109,15 @@ python scripts/verify_deck.py out.pptx                                    # 静�
 
 **① 大图移出画外 → 滑入（目录页 → 内容页，视频的"丝滑衔接"）**
 
-两页引用**同一张图片**（同路径），上一页用 `image_box` 把图放到画外，下一页摆正：
+两页引用**同一张图片**（同路径），目录页（`toc`）默认把图放在画外，内容页摆正即可：
 
 ```json
-{"type": "content", "title": "目录", "image": "photos/tower.jpg",
- "image_box": [0.90, 0.085, 0.42, 0.83], "cone": {"length": 0.02}},
+{"type": "toc", "title": "目录", "image": "photos/tower.jpg"},
 {"type": "content", "title": "燃灯塔", "image": "photos/tower.jpg",
  "image_box": [0.52, 0.085, 0.42, 0.83], "lit": true}
 ```
 
-播放时大图从右侧滑入占位，灯同步从灯源里张出来。**要点：两页都要有 image**，缺一页就退化成淡入淡出，不是滑动。
+播放时大图从右侧滑入占位，灯同步从灯源里张出来。**要点：两页都要有 image**，缺一页就退化成淡入淡出，不是滑动；不用 toc 页型时，上一页手写 `image_box: [0.90, 0.085, 0.42, 0.83]` 效果相同。
 
 **② 把灯光藏进灯源 / 灯游走**
 
