@@ -18,7 +18,7 @@ description: 生成《喜鹊谋杀案》式悬疑暗场风 PPT（黑底+满页�
 - **开灯动画**：光锥+光晕（有图时含光照图）加 **擦除·自顶部**（`wipe(down)`，presetID 22 / subtype 4）、`wipe_ms`(0.5s)、同组同时播放。timing 组用 `onBegin tn=2` 条件 → **翻到该页自动开灯**，不用点。
 - **随机线条**：`randombar(horizontal)`，presetID 14 / subtype 10，给标题加"报幕"出场（页配置 `"title_reveal": "bars"`），延迟 `wipe_ms` 后自动播。
 - **聚光灯转移**：跨页同名对象（灯/锥/光晕/文字）配 Morph 自动补间；文字用 `text_transparency`（PowerPoint 语义：**74 = 74% 透明**）——上一页 74、下一页 0，翻页时灯移过去、文字亮起来（视频原话"把文字透明度改成 74%→调成 0%"）。
-- **Morph 衔接**：除第 1 页外每页挂 `p159:morph byObject`（`morph_ms`）。**把灯光藏进灯源** = 该页 `cone.length: 0.02`（扇形缩到灯后，Morph 播放时像收回灯里）。**丝滑衔接配方** = 上一页 `image_box` 把大图放到画外（x ≥ 0.9），下一页摆正（x=0.52），Morph 播放时大图从画外滑入。
+- **Morph 衔接**：除第 1 页外每页挂 `p159:morph byObject`（`morph_ms`），跨页同名对象自动补间。三招配方（大图移出画外、灯光藏进灯源、聚光灯转移）见下方「页面衔接（Morph）」一节。
 - **图片处理路线**：视频用"百度搭子"把照片转成同风格（暗调、酒红、版画/油画质感）。本技能接收任意图片；没有 AI 时用 `make_demo_assets.py` 生成抽象演示图，正式使用请换成 AI 生成或实拍处理的图。
 
 ## 快速生成
@@ -81,6 +81,44 @@ python scripts/verify_deck.py out.pptx                                    # 静�
 | section | 0.80, 0.285, 0.062 | 148° / 60° / 1.50 | ✓ |
 | content | 0.285, 0.265, 0.055 | 15° / 50° / 1.00 | ✗ |
 | end | 0.50, 0.40, 0.048 | 90° / 52° / 0.02（藏灯） | ✗ |
+
+## 页面衔接（Morph）
+
+技能默认就带着"页面衔接"：除第 1 页外每页都挂**平滑切换**（`p159:morph byObject`，`morph_ms` 默认 1400ms）。跨页自动补间的是**同名 `xq-*` 对象**——上一页的灯、光锥、光晕、图片、文字到下一页会"滑"过去而不是换图。衔接不需要额外开关，把两页参数写成"同一组物件、不同位置/大小/透明度"即可。三招配方：
+
+**① 大图移出画外 → 滑入（目录页 → 内容页，视频的"丝滑衔接"）**
+
+两页引用**同一张图片**（同路径），上一页用 `image_box` 把图放到画外，下一页摆正：
+
+```json
+{"type": "content", "title": "目录", "image": "photos/tower.jpg",
+ "image_box": [0.90, 0.085, 0.42, 0.83], "cone": {"length": 0.02}},
+{"type": "content", "title": "燃灯塔", "image": "photos/tower.jpg",
+ "image_box": [0.52, 0.085, 0.42, 0.83], "lit": true}
+```
+
+播放时大图从右侧滑入占位，灯同步从灯源里张出来。**要点：两页都要有 image**，缺一页就退化成淡入淡出，不是滑动。
+
+**② 把灯光藏进灯源 / 灯游走**
+
+上一页 `cone: {"length": 0.02}`（扇形缩到灯后，看起来收进灯里），下一页恢复正常 `length` 并给新的 `lamp` / `cone.dir`，Morph 会把光锥"拉出来"、灯"走"过去：
+
+```json
+{"type": "content", "lamp": [0.285, 0.265, 0.055], "cone": {"dir": 15}},
+{"type": "content", "lamp": [0.30, 0.62, 0.055], "cone": {"dir": 345}, "lit": true}
+```
+
+**③ 聚光灯转移（文字透明度 74 → 0）**
+
+同一组文字跨页，上一页 `text_transparency: 74`（暗）、下一页 `0`（亮），同时挪灯；有图的页开 `lit`，光移过去照亮图片：
+
+```json
+{"type": "content", "title": "燃灯塔", "text_transparency": 74, "lit": true},
+{"type": "content", "title": "铁塔",   "text_transparency": 0,
+ "lamp": [0.30, 0.62, 0.055], "cone": {"dir": 345}, "lit": true}
+```
+
+其它可跨页补间的：`title_size`/`body_size` 变化（文字缩放，对应视频"字号调大"）、标题/英文行改字（内容交叉淡化）、`lamp` 半径变化（灯变大变小）。注意 Morph 需 PowerPoint 2019/365 放映，WPS/旧版回退普通切换；`verify_deck.py` 会检查第 2 页起的 Morph 是否齐全。
 
 ## 边界与坑
 
